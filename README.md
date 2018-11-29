@@ -38,7 +38,6 @@ ext {
     propAptoideUsername = properties.getProperty('aptoideUsername')
     propAptoidePassword = properties.getProperty('aptoidePassword')
     propAptoideRepo = properties.getProperty('aptoideRepo')
-    propAptoideApkName = properties.getProperty('aptoideApkName')
     propAptoideApkPath = properties.getProperty('aptoideApkPath')
 }
 ```
@@ -53,6 +52,15 @@ Add this gradle task:
 
 ```gradle
 task uploadToAptoide(type: HttpTask) {
+    doFirst {
+        if(propAptoideUsername == null ||
+                propAptoidePassword == null ||
+                propAptoideRepo == null ||
+                propAptoideApkPath == null) {
+            throw new InvalidUserDataException("Could not log in to Aptoide. \nPlease ensure that you have these values in your local.properties file: \naptoideUsername, aptoidePassword, aptoideRepo, aptoideApkPath\n")
+        }
+    }
+
     String accessToken = null
     config {
         request.uri = 'https://webservices.aptoide.com'
@@ -66,8 +74,11 @@ task uploadToAptoide(type: HttpTask) {
             Map json = new JsonSlurper().parse(fs.inputStream) as Map
             logger.info("oauth2Authentication server response: $json")
             if(json.containsKey("error")) {
+                logger.error("Could not log in to Aptoide. Please ensure that you have these values in your local.properties file: aptoideUsername, aptoidePassword, aptoideRepo")
                 logger.error("Aptoide ERROR - [${json.error}]: ${json.error_description}")
-                logger.error("Could not log in to Aptoide. Please ensure that you have these values in your local.properties file: aptoideUsername, aptoidePassword, aptoideRepo, aptoideApkName")
+            } else if(json.containsKey("errors")) {
+                logger.error("Could not log in to Aptoide. Please ensure that you have these values in your local.properties file: aptoideUsername, aptoidePassword, aptoideRepo")
+                json.errors.each { err -> logger.error("Aptoide ERROR - [${err.code}]: ${err.msg}") }
             } else {
                 accessToken = json.access_token
                 logger.info("Access Token: ${accessToken}")
@@ -83,12 +94,12 @@ task uploadToAptoide(type: HttpTask) {
             field 'repo', propAptoideRepo
             field 'mode', 'json'
             field 'only_user_repo', 'false'
-            part 'apk', propAptoideApkName, 'application/octet-stream', new File(propAptoideApkPath)
+            part 'apk', "artifact.apk", 'application/octet-stream', new File(propAptoideApkPath)
         }
         request.encoder 'multipart/form-data', groovyx.net.http.OkHttpEncoders.&multipart
 
-        response.parser('application/json') { cc, fs ->
-            Map json = new JsonSlurper().parse(fs.inputStream) as Map
+        response.parser('application/json') { cc2, fs2 ->
+            Map json = new JsonSlurper().parse(fs2.inputStream) as Map
             logger.info("uploadAppToRepo server response: $json")
             if(json.status == "OK") {
                 logger.info("Aptoide upload status: ${json.status}")
